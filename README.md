@@ -1,57 +1,27 @@
-TSE Calorimetry Analysis Scripts
-🇬🇧 English Version
-Overview
+| Script                  | Purpose (EN)                                               | Objectif (FR)                                                               |
+| ----------------------- | ---------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `TSE_Add_EE.py`         | Add Energy Expenditure column from VO2 and animal weights. | Ajoute la colonne Dépense Énergétique à partir de VO2 et des poids animaux. |
+| `TSE_merge_excel.py`    | Merge two Excel files by animal.                           | Fusionne deux fichiers Excel par animal.                                    |
+| `TSE_All-Graph_Raw.py`  | Generate 15-min raw or smoothed graphs per animal.         | Génère des graphiques 15-min bruts ou lissés par animal.                    |
+| `TSE_All-Graph_mean.py` | Generate graphs using averaged data.                       | Génère des graphiques à partir de données moyennées.                        |
+| `TSE_One_Day_mean.py`   | Compute hourly averages/sums for a selected day.           | Calcul des moyennes et sommes horaires pour un jour sélectionné.            |
+| `TSE_One_Day_raw.py`    | Extract raw 15-min data for a selected day.                | Extraction des données brutes 15-min pour un jour sélectionné.              |
+| `TSE_4_Days_raw.py`     | Extract raw 15-min data for four consecutive days.         | Extraction des données brutes 15-min pour quatre jours consécutifs.         |
 
-This repository contains a set of Python scripts designed for calorimetry data analysis of animals. The scripts process raw Excel data, calculate energy expenditure, merge files, and generate detailed plots of RER, activity, feeding, and energy expenditure. All scripts use Python 3 with pandas, matplotlib, openpyxl, and tkinter for GUI file selection.
 
-Scripts
-
-TSE_Add_EE.py
-
-Adds an Energy Expenditure (EE) column to your Excel file.
-
-Reads VO2 values and animal weights automatically and calculates EE in kcal/h.
-
-Output: Excel file with a new column Energy expenditure [kcal/h].
-
-TSE_merge_excel.py
-
-Merges two Excel files containing animal data.
-
-Inserts data from the second file right after each corresponding animal in the first file.
-
-Output: Final merged Excel file.
-
-TSE_All-Graph_Raw.py
-
-Generates 15-min raw or smoothed graphs for all animals.
-
-Optionally applies a 1-hour rolling mean smoothing.
-
-Outputs: individual and global graphs per metric (RER, XT+YT, Feed, EE) and a processed Excel file.
-
-TSE_One_Day_mean.py
-
-Computes hourly averages and sums for a selected 7 AM → 7 AM period.
-
-Plots multi-axis and individual metric graphs for each animal and global plots for all animals.
-
-Supports different light cycle types: LD1:1, DD, LD12:12.
-
-Output: Excel file with hourly data and graphs.
-
-TSE_One_Day_raw.py
-
-Extracts raw 15-min data for a selected 7 AM → 7 AM period without averaging.
-
-Generates multi-axis and individual metric plots for each animal.
-
-Supports light cycles as above.
-
-Output: Excel file with raw data and graphs.
-
-Requirements
-
+-Requirements / Prérequis:
 Python 3.x
+Packages: pandas, matplotlib, openpyxl, tkinter
+Install required packages: pip install pandas matplotlib openpyxl tk
 
-Packages:
+
+-Usage / Utilisation :
+Open your IDE (Spyder recommended). / Ouvrir l’IDE (Spyder recommandé).
+Run the script and follow the prompts for file selection and options.
+Output Excel files and graphs will be saved automatically in the specified output folder.
+
+
+-Output / Sortie :
+Excel files with processed/calculated data.
+Graphs for each animal (multi-axis, raw or averaged).
+Global graphs comparing all animals.

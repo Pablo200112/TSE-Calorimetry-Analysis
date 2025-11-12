@@ -52,7 +52,7 @@ if light_cycle not in ["1", "2", "3"]:
 
 # --------------------------
 # 📁 Output folder
-output_root = r"C:\Users\pablo\OneDrive\Bureau\Program Output"
+output_root = r"D:\pablo.SAIDI\Desktop\Sortie programme calo"
 base_name = os.path.splitext(os.path.basename(file_path))[0]
 output_dir = os.path.join(output_root, f"{base_name}_{start_day}_LD11_7h_7h")
 os.makedirs(output_dir, exist_ok=True)
@@ -60,11 +60,11 @@ print(f"📁 Output folder: {output_dir}")
 
 # --------------------------
 # 📊 Read Excel file
-df = pd.read_excel(file_path, sheet_name='PS 2025 02')
+df = pd.read_excel(file_path, sheet_name='PS 2025 01 arvis M')
 df.columns = df.columns.str.strip()
 
 df = df.rename(columns={
-    "PS 2025 02": "Date",
+    "PS 2025 01 arvis M": "Date",
     "Unnamed: 1": "Time",
     "TX002": "Animal",
     "Unnamed: 13": "RER",
@@ -94,6 +94,31 @@ df["XT_YT"] = df["XT_YT"] / 8000
 # --------------------------
 # 🧮 Select period 7 AM → 7 AM next day
 df_day = df[(df["DateTime"] >= start_period) & (df["DateTime"] < end_period)].copy()
+
+# --------------------------
+
+# 🧱 Organize data per animal (each animal in column)
+# and save all metrics in a single Excel file (one sheet per metric)
+
+metrics = ["RER", "XT_YT", "Feed_diff", "EE"]
+wide_data = {}
+
+output_file_combined = os.path.join(output_dir, f"{base_name}_{start_day}_wide_data.xlsx")
+
+with pd.ExcelWriter(output_file_combined, engine="openpyxl") as writer:
+    for metric in metrics:
+        if metric in df_day.columns:
+            # Create wide-format table (each animal = one column)
+            df_wide = df_day.pivot(index="DateTime", columns="Animal", values=metric)
+            wide_data[metric] = df_wide
+
+            # Write to Excel sheet named after the metric
+            df_wide.to_excel(writer, sheet_name=metric)
+
+            print(f"✅ Wide-format sheet added: {metric}")
+
+print(f"📘 All wide-format data saved in one Excel file: {output_file_combined}")
+
 
 # --------------------------
 # 💾 Export full data (no averaging)

@@ -40,13 +40,13 @@ print(f"📅 Analysis period: {start_period} → {end_period}")
 # --------------------------
 # 🕒 Choose how to align raw sampling windows
 shift_choice = simpledialog.askstring(
-    "Timestamp alignment",
-    "Your raw timestamps correspond to the END of a 15-min window.\n"
-    "Choose how to place each data point (applied to RAW data BEFORE averaging):\n\n"
-    "1 = BEGINNING of window  (e.g. 08:00 -> 07:45)  -> shift = -15 min\n"
-    "2 = CENTER  of window     (e.g. 08:00 -> 07:52:30) -> shift = -7.5 min\n"
-    "3 = END of window         (no shift)             -> shift = 0 min\n\n"
-    "Enter 1, 2 or 3:"
+   "Timestamp Position",
+    "Sampling window is 15 min.\n"
+    "Choose how to position each data point:\n\n"
+    "1 = beginning of window (ex: 08:00 → 07:45)\n"
+    "2 = center of window, recommended (ex: 08:00 → 07:52:30)\n"
+    "3 = end of window (no correction)\n\n"
+    "Enter 1, 2, or 3:"
 )
 
 if shift_choice not in ["1", "2", "3"]:

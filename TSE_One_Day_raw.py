@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Complete Script: Calorimetry Analysis LD11 (No hourly averaging)
+Complete Script: Calorimetry Analysis LD11 (with timestamp correction option)
 Created by Pablo SAIDI
 """
 
@@ -35,6 +35,32 @@ start_day = pd.to_datetime(start_day_str).date()
 start_period = pd.to_datetime(str(start_day)) + pd.Timedelta(hours=7)
 end_period = start_period + pd.Timedelta(hours=24)
 print(f"📅 Analysis period: {start_period} → {end_period}")
+
+# --------------------------
+# ⏱️ Choose how to position timestamps
+timestamp_mode = simpledialog.askstring(
+    "Timestamp Position",
+    "Sampling window is 15 min.\n"
+    "Choose how to position each data point:\n\n"
+    "1 = beginning of window (ex: 08:00 → 07:45)\n"
+    "2 = center of window (ex: 08:00 → 07:52:30)\n"
+    "3 = end of window (no correction)\n\n"
+    "Enter 1, 2, or 3:"
+)
+
+if timestamp_mode not in ["1", "2", "3"]:
+    raise ValueError("❌ Invalid choice. Restart and enter 1, 2, or 3.")
+
+# Offset in minutes depending on choice
+if timestamp_mode == "1":
+    timestamp_shift = pd.Timedelta(minutes=15)  # shift backwards 15 min
+    print("⏱️ Using BEGINNING of window timestamps (−15 min).")
+elif timestamp_mode == "2":
+    timestamp_shift = pd.Timedelta(minutes=7, seconds=30)  # shift backwards 7m30s
+    print("⏱️ Using CENTER of window timestamps (−7m30s).")
+else:
+    timestamp_shift = pd.Timedelta(seconds=0)
+    print("⏱️ Using END of window timestamps (no correction).")
 
 # --------------------------
 # 💡 Choose light cycle type
@@ -76,8 +102,16 @@ df = df.rename(columns={
 # 🧹 Data cleaning
 df = df[pd.to_numeric(df["Animal"], errors="coerce").notna()]
 df["Animal"] = df["Animal"].astype(int)
-df["DateTime"] = pd.to_datetime(df["Date"].astype(str).str.strip() + " " + df["Time"].astype(str).str.strip(), errors="coerce")
 
+df["DateTime"] = pd.to_datetime(
+    df["Date"].astype(str).str.strip() + " " + df["Time"].astype(str).str.strip(),
+    errors="coerce"
+)
+
+# ⏱️ Apply timestamp correction
+df["DateTime"] = df["DateTime"] - timestamp_shift
+
+# Convert numeric columns
 for col in ["RER", "XT_YT", "Feed"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -96,10 +130,7 @@ df["XT_YT"] = df["XT_YT"] / 8000
 df_day = df[(df["DateTime"] >= start_period) & (df["DateTime"] < end_period)].copy()
 
 # --------------------------
-
-# 🧱 Organize data per animal (each animal in column)
-# and save all metrics in a single Excel file (one sheet per metric)
-
+# 🧱 Organize wide-format tables for Excel
 metrics = ["RER", "XT_YT", "Feed_diff", "EE"]
 wide_data = {}
 
@@ -108,20 +139,15 @@ output_file_combined = os.path.join(output_dir, f"{base_name}_{start_day}_wide_d
 with pd.ExcelWriter(output_file_combined, engine="openpyxl") as writer:
     for metric in metrics:
         if metric in df_day.columns:
-            # Create wide-format table (each animal = one column)
             df_wide = df_day.pivot(index="DateTime", columns="Animal", values=metric)
             wide_data[metric] = df_wide
-
-            # Write to Excel sheet named after the metric
             df_wide.to_excel(writer, sheet_name=metric)
-
             print(f"✅ Wide-format sheet added: {metric}")
 
-print(f"📘 All wide-format data saved in one Excel file: {output_file_combined}")
-
+print(f"📘 All wide-format data saved in: {output_file_combined}")
 
 # --------------------------
-# 💾 Export full data (no averaging)
+# 💾 Export raw corrected data
 output_file = os.path.join(output_dir, f"{base_name}_{start_day}_LD11_7h_7h_raw.xlsx")
 df_day.to_excel(output_file, index=False)
 print(f"✅ Raw data exported: {output_file}")
@@ -130,26 +156,20 @@ print(f"✅ Raw data exported: {output_file}")
 # ☀️🌙 Light cycle visualization
 def add_light_cycle(ax, day, cycle_type):
     start = pd.to_datetime(str(day)) + pd.Timedelta(hours=7)
-
     if cycle_type == "1":
-        # Alternating 1h light / 1h dark
         for h in range(0, 24, 2):
             night_start = start + pd.Timedelta(hours=h + 1)
             night_end = start + pd.Timedelta(hours=h + 2)
             ax.axvspan(night_start, night_end, color='gray', alpha=0.2)
-
     elif cycle_type == "2":
-        # 24h dark
         ax.axvspan(start, start + pd.Timedelta(hours=24), color='gray', alpha=0.3)
-
     elif cycle_type == "3":
-        # 12h light (7–19h) / 12h dark (19–7h next day)
-        night_start = start + pd.Timedelta(hours=12)   # 19h same day
-        night_end = night_start + pd.Timedelta(hours=12)  # 7h next day
+        night_start = start + pd.Timedelta(hours=12)
+        night_end = night_start + pd.Timedelta(hours=12)
         ax.axvspan(night_start, night_end, color='gray', alpha=0.3)
 
 # --------------------------
-# 📈 Multi-axis individual graphs (using all data points)
+# 📈 Multi-axis graphs
 animals = df_day["Animal"].unique()
 for animal in animals:
     fig, ax1 = plt.subplots(figsize=(14, 6))
@@ -157,7 +177,6 @@ for animal in animals:
 
     df_animal = df_day[df_day["Animal"] == animal]
 
-    # Axis 1: RER
     if "RER" in df_animal.columns:
         ax1.plot(df_animal["DateTime"], df_animal["RER"],
                  color='blue', marker='o', linestyle='-', linewidth=1, markersize=3, label="RER")
@@ -167,44 +186,40 @@ for animal in animals:
     ax1.xaxis.set_major_locator(mdates.HourLocator(interval=2))
     ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Hh'))
 
-    # Axis 2: XT+YT
     ax2 = ax1.twinx()
     if "XT_YT" in df_animal.columns:
         ax2.plot(df_animal["DateTime"], df_animal["XT_YT"],
-                 color='red', marker='s', linestyle='-', linewidth=1, markersize=3, alpha=0.7, label="XT+YT / 8000")
+                 color='red', marker='s', linestyle='-', linewidth=1, markersize=3, alpha=0.7)
     ax2.set_ylabel("XT+YT / 8000", color='red')
     ax2.tick_params(axis='y', labelcolor='red')
 
-    # Axis 3: Feed
     ax3 = ax1.twinx()
     if "Feed_diff" in df_animal.columns:
         ax3.plot(df_animal["DateTime"], df_animal["Feed_diff"],
-                 color='green', marker='D', linestyle='-', linewidth=1.5, markersize=3, label="Feed (g)")
+                 color='green', marker='D', linestyle='-', linewidth=1.5, markersize=3)
     ax3.set_ylabel("Feed (g)", color='green')
     ax3.tick_params(axis='y', labelcolor='green')
     ax3.spines['right'].set_position(('outward', 60))
 
-    # Axis 4: EE
     ax4 = ax1.twinx()
     if "EE" in df_animal.columns:
         ax4.plot(df_animal["DateTime"], df_animal["EE"],
-                 color='#800080', marker='^', linestyle='-', linewidth=1.5, markersize=3, label="EE (kcal)")
+                 color='#800080', marker='^', linestyle='-', linewidth=1.5, markersize=3)
     ax4.set_ylabel("EE (kcal)", color='#800080')
     ax4.tick_params(axis='y', labelcolor='#800080')
     ax4.spines['right'].set_position(('outward', 120))
 
     ax1.set_title(f"Animal {animal} - {start_day} (Cycle {light_cycle})")
-    fig.legend(loc="upper left", bbox_to_anchor=(0.1, 0.9))
     ax1.grid(True, axis='y', linestyle='--', alpha=0.7)
     plt.xticks(rotation=45)
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, f"Graph_Animal{animal}_{start_day}_Cycle{light_cycle}_raw.png"))
     plt.close()
 
-print("✅ Multi-axis graphs successfully generated (raw data)")
+print("✅ Multi-axis graphs successfully generated")
 
 # --------------------------
-# 📈 Individual metric graphs (no averaging)
+# 📈 Individual metric graphs
 for animal in animals:
     df_animal = df_day[df_day["Animal"] == animal]
     for metric, color, ylabel, marker in [
@@ -218,7 +233,7 @@ for animal in animals:
             add_light_cycle(ax, start_day, light_cycle)
             ax.plot(df_animal["DateTime"], df_animal[metric],
                     color=color, marker=marker, linestyle='-', linewidth=1, markersize=3)
-            ax.set_title(f"Animal {animal} - {metric} - {start_day} (Cycle {light_cycle})")
+            ax.set_title(f"Animal {animal} - {metric} - {start_day}")
             ax.set_xlabel("Hour")
             ax.set_ylabel(ylabel, color=color)
             ax.tick_params(axis='y', labelcolor=color)
@@ -227,9 +242,7 @@ for animal in animals:
             ax.grid(True, linestyle='--', alpha=0.7)
             plt.xticks(rotation=45)
             plt.tight_layout()
-            plt.savefig(os.path.join(output_dir, f"Graph_Animal{animal}_{metric}_{start_day}_Cycle{light_cycle}_raw.png"))
+            plt.savefig(os.path.join(output_dir, f"Graph_Animal{animal}_{metric}_{start_day}_raw.png"))
             plt.close()
-
-print("✅ Individual metric graphs successfully generated (raw data)")
 
 print(f"\n📦 All output files are located in: {output_dir}")

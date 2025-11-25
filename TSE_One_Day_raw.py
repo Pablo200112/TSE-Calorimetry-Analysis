@@ -43,7 +43,7 @@ timestamp_mode = simpledialog.askstring(
     "Sampling window is 15 min.\n"
     "Choose how to position each data point:\n\n"
     "1 = beginning of window (ex: 08:00 → 07:45)\n"
-    "2 = center of window (ex: 08:00 → 07:52:30)\n"
+    "2 = center of window, recommended (ex: 08:00 → 07:52:30)\n"
     "3 = end of window (no correction)\n\n"
     "Enter 1, 2, or 3:"
 )
@@ -246,3 +246,4 @@ for animal in animals:
             plt.close()
 
 print(f"\n📦 All output files are located in: {output_dir}")
+

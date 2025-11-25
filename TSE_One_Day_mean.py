@@ -51,6 +51,29 @@ if light_cycle not in ["1", "2", "3"]:
     raise ValueError("❌ Invalid choice. Restart the script and enter 1, 2, or 3.")
 
 # --------------------------
+# ⏱️ Choose time alignment method
+alignment = simpledialog.askstring(
+    "Time Alignment",
+    "Choose how to position each 15-min window:\n"
+    "1 = Beginning of window (0 min)\n"
+    "2 = Center of window (7 min 30)\n"
+    "3 = End of window (15 min)\n"
+    "(Enter 1, 2 or 3)"
+)
+
+if alignment not in ["1", "2", "3"]:
+    raise ValueError("❌ Invalid choice. Enter 1, 2, or 3.")
+
+# Convert choice to offset in minutes
+alignment_offset = {
+    "1": 0,
+    "2": 7.5,
+    "3": 15
+}[alignment]
+
+print(f"⏱️ Time alignment chosen: offset = {alignment_offset} minutes")
+
+# --------------------------
 # 📁 Output folder
 output_root = r"D:\pablo.SAIDI\Desktop\Sortie programme calo"
 base_name = os.path.splitext(os.path.basename(file_path))[0]
@@ -114,7 +137,13 @@ if "EE" in df_day.columns:
 else:
     df_pivot = pd.concat([rer_pivot, xtyt_pivot, feed_pivot], axis=1).reset_index()
 
-df_pivot["DateTime"] = start_period + pd.to_timedelta(df_pivot["Relative_Hour"] + 0.5, unit='h')
+# --------------------------
+# 🕒 Apply time alignment (beginning / center / end)
+df_pivot["DateTime"] = (
+    start_period
+    + pd.to_timedelta(df_pivot["Relative_Hour"], unit='h')
+    + pd.to_timedelta(alignment_offset, unit='m')
+)
 
 # --------------------------
 # 💾 Export to Excel
@@ -128,19 +157,16 @@ def add_light_cycle(ax, day, cycle_type):
     start = pd.to_datetime(str(day)) + pd.Timedelta(hours=7)
 
     if cycle_type == "1":
-        # Alternating 1h light / 1h dark
         for h in range(0, 24, 2):
             night_start = start + pd.Timedelta(hours=h + 1)
             night_end = start + pd.Timedelta(hours=h + 2)
             ax.axvspan(night_start, night_end, color='gray', alpha=0.2)
 
     elif cycle_type == "2":
-        # 24h dark
         ax.axvspan(start, start + pd.Timedelta(hours=24), color='gray', alpha=0.3)
 
     elif cycle_type == "3":
-        # 12h light / 12h dark
-        night_start = start + pd.Timedelta(hours=12)  # 19h → after 12h of light
+        night_start = start + pd.Timedelta(hours=12)
         night_end = night_start + pd.Timedelta(hours=12)
         ax.axvspan(night_start, night_end, color='gray', alpha=0.3)
 
@@ -151,7 +177,6 @@ for animal in animals:
     fig, ax1 = plt.subplots(figsize=(14, 6))
     add_light_cycle(ax1, start_day, light_cycle)
 
-    # Axis 1: RER
     if f"RER_Animal{animal}" in df_pivot.columns:
         ax1.plot(df_pivot["DateTime"], df_pivot[f"RER_Animal{animal}"],
                  color='blue', marker='o', linestyle='-', linewidth=1.5, markersize=5, label="RER")
@@ -161,7 +186,6 @@ for animal in animals:
     ax1.xaxis.set_major_locator(mdates.HourLocator(interval=2))
     ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Hh'))
 
-    # Axis 2: XT+YT
     ax2 = ax1.twinx()
     if f"XT_YT_Animal{animal}" in df_pivot.columns:
         ax2.plot(df_pivot["DateTime"], df_pivot[f"XT_YT_Animal{animal}"],
@@ -169,7 +193,6 @@ for animal in animals:
     ax2.set_ylabel("XT+YT / 8000", color='red')
     ax2.tick_params(axis='y', labelcolor='red')
 
-    # Axis 3: Feed
     ax3 = ax1.twinx()
     if f"Feed_Animal{animal}" in df_pivot.columns:
         ax3.plot(df_pivot["DateTime"], df_pivot[f"Feed_Animal{animal}"],
@@ -178,7 +201,6 @@ for animal in animals:
     ax3.tick_params(axis='y', labelcolor='green')
     ax3.spines['right'].set_position(('outward', 60))
 
-    # Axis 4: EE
     ax4 = ax1.twinx()
     if f"EE_Animal{animal}" in df_pivot.columns:
         ax4.plot(df_pivot["DateTime"], df_pivot[f"EE_Animal{animal}"],

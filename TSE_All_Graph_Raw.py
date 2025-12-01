@@ -24,7 +24,7 @@ print(f"✅ Selected file : {file_path}")
 
 # --------------------------
 # 📁 Output directory
-output_root = r"C:\Users\pablo\OneDrive\Bureau\Program Output"
+output_root = r"D:\pablo.SAIDI\Desktop\Sortie programme calo"
 base_name = os.path.splitext(os.path.basename(file_path))[0]
 output_dir = os.path.join(output_root, base_name)
 os.makedirs(output_dir, exist_ok=True)
@@ -76,6 +76,21 @@ df = df.sort_values(["Animal", "DateTime"])
 df["Feed_diff"] = df.groupby("Animal")["Feed"].diff()
 df.loc[df["Feed_diff"] < 0, "Feed_diff"] = 0
 
+# ❓ Ask user if values >2 should be excluded
+root = Tk()
+root.withdraw()
+exclude_feed_outliers = messagebox.askyesno(
+    "Feed_diff Filtering",
+    "Do you want to exclude Feed_diff values greater than 2 ?"
+)
+root.destroy()
+
+if exclude_feed_outliers:
+    print("⛔ Excluding Feed_diff values > 2")
+    df.loc[df["Feed_diff"] > 2, "Feed_diff"] = None
+else:
+    print("✔ Keeping all Feed_diff values (no filtering)")
+
 # Normalizing XT_YT
 df["XT_YT"] = df["XT_YT"] / 8000
 
@@ -96,7 +111,9 @@ root.destroy()
 if apply_smoothing:
     print("🔄 Applying 1-hour rolling mean smoothing (4x15min)...")
     df[["RER", "XT_YT", "EE", "Feed_diff"]] = (
-        df.groupby("Animal")[["RER", "XT_YT", "EE", "Feed_diff"]].transform(lambda x: x.rolling(window=4, min_periods=1).mean())
+        df.groupby("Animal")[["RER", "XT_YT", "EE", "Feed_diff"]].transform(
+            lambda x: x.rolling(window=4, min_periods=1).mean()
+        )
     )
 else:
     print("🚫 No smoothing applied (raw 15-min data used).")

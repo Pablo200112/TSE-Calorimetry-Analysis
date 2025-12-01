@@ -8,7 +8,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from tkinter import Tk, filedialog, simpledialog
+from tkinter import Tk, filedialog, simpledialog, messagebox
 
 # --------------------------
 # 📂 Select Excel file
@@ -121,9 +121,28 @@ if "Unnamed: 16" in df.columns:
     df["EE"] = pd.to_numeric(df["Unnamed: 16"], errors="coerce")
 
 df = df.sort_values(["Animal", "DateTime"]).copy()
+
+# --------------------------
+# 🧮 FEED DIFF
 df["Feed_diff"] = df.groupby("Animal")["Feed"].diff()
 df.loc[df["Feed_diff"] < 0, "Feed_diff"] = 0
 df["XT_YT"] = df["XT_YT"] / 8000
+
+# --------------------------
+# 🔹 Tkinter prompt for optional 2 g filter
+root = Tk()
+root.withdraw()
+apply_filter = messagebox.askyesno(
+    "Filter Feed_diff > 2 g",
+    "Do you want to remove all Feed_diff values > 2 g?"
+)
+root.destroy()
+
+if apply_filter:
+    df.loc[df["Feed_diff"] > 2, "Feed_diff"] = None
+    print("⛔ Filter applied: all Feed_diff > 2 g removed")
+else:
+    print("✅ Filter not applied: all Feed_diff values kept")
 
 # --------------------------
 # 🧮 Select period 7 AM → 7 AM next day
@@ -246,4 +265,3 @@ for animal in animals:
             plt.close()
 
 print(f"\n📦 All output files are located in: {output_dir}")
-

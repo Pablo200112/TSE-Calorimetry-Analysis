@@ -9,7 +9,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from tkinter import Tk, filedialog, simpledialog
+from tkinter import Tk, filedialog, simpledialog, messagebox
 
 # --------------------------
 # 📂 Select Excel file
@@ -118,36 +118,48 @@ if "Unnamed: 16" in df.columns:
 
 df = df.sort_values(["Animal", "DateTime"]).copy()
 
-# Compute Feed differences on raw Feed column (will align to shifted timestamps below)
+# Compute Feed differences
 df["Feed_diff"] = df.groupby("Animal")["Feed"].diff()
 df.loc[df["Feed_diff"] < 0, "Feed_diff"] = 0
 
+# --------------------------
+# 🧪 Option to exclude Feed_diff > 2 g
+root = Tk()
+root.withdraw()
+exclude_feed = messagebox.askyesno(
+    "Feed_diff > 2 g",
+    "Do you want to exclude Feed_diff values greater than 2 g?"
+)
+root.destroy()
+
+if exclude_feed:
+    print("⛔ Excluding Feed_diff values > 2 g")
+    df["Feed_diff"] = df["Feed_diff"].where(df["Feed_diff"] <= 2, None)
+else:
+    print("✔ Keeping all Feed_diff values (no filtering)")
+
+# --------------------------
 # Normalize XT+YT
 df["XT_YT"] = df["XT_YT"] / 8000
 
 # --------------------------
-# ⏱️ SHIFT RAW TIMESTAMPS (applied to raw data BEFORE any selection / averaging)
-# Note: original timestamps are treated as window END; subtract offset to move to begin/center/end.
+# ⏱️ SHIFT RAW TIMESTAMPS
 df["DateTime_shifted"] = df["DateTime"] - pd.to_timedelta(offset_minutes, unit="m")
-
-# Re-sort by shifted timestamps per animal
 df = df.sort_values(["Animal", "DateTime_shifted"]).copy()
 
 # --------------------------
-# 🧮 Select period 7 AM → 7 AM next day using SHIFTED timestamps
+# 🧮 Select period 7 AM → 7 AM next day using shifted timestamps
 df_day = df[(df["DateTime_shifted"] >= start_period) & (df["DateTime_shifted"] < end_period)].copy()
-
-# Relative_Hour computed from shifted timestamps (so hourly bins reflect corrected times)
 df_day["Relative_Hour"] = ((df_day["DateTime_shifted"] - start_period).dt.total_seconds() // 3600).astype(int)
 
 # --------------------------
-# 📘 Export shifted raw data for traceability
+# 📘 Export shifted raw data
 output_file_shifted = os.path.join(output_dir, f"{base_name}_{start_day}_shifted_raw.xlsx")
 df_day.to_excel(output_file_shifted, index=False)
 print(f"✅ Shifted raw data exported: {output_file_shifted}")
 
 # --------------------------
-# 📊 Hourly averages / sums — computed FROM SHIFTED raw data
+# 📊 Hourly averages / sums
 rer_pivot = df_day.pivot_table(index="Relative_Hour", columns="Animal", values="RER", aggfunc="mean")
 xtyt_pivot = df_day.pivot_table(index="Relative_Hour", columns="Animal", values="XT_YT", aggfunc="mean")
 feed_pivot = df_day.pivot_table(index="Relative_Hour", columns="Animal", values="Feed_diff", aggfunc="sum")
@@ -156,7 +168,6 @@ rer_pivot.columns = [f"RER_Animal{col}" for col in rer_pivot.columns]
 xtyt_pivot.columns = [f"XT_YT_Animal{col}" for col in xtyt_pivot.columns]
 feed_pivot.columns = [f"Feed_Animal{col}" for col in feed_pivot.columns]
 
-# EE pivot (if present)
 if "EE" in df_day.columns:
     ee_pivot = df_day.pivot_table(index="Relative_Hour", columns="Animal", values="EE", aggfunc="sum")
     ee_pivot.columns = [f"EE_Animal{col}" for col in ee_pivot.columns]
@@ -164,12 +175,10 @@ if "EE" in df_day.columns:
 else:
     df_pivot = pd.concat([rer_pivot, xtyt_pivot, feed_pivot], axis=1).reset_index()
 
-# --------------------------
-# 🕒 Timestamp for hourly bins: middle of each hour (start_period + hour + 0.5h)
 df_pivot["DateTime"] = start_period + pd.to_timedelta(df_pivot["Relative_Hour"], unit='h') + pd.to_timedelta(0.5, unit='h')
 
 # --------------------------
-# 💾 Export hourly pivot to Excel
+# 💾 Export hourly pivot
 output_file = os.path.join(output_dir, f"{base_name}_{start_day}_LD11_7h_7h.xlsx")
 df_pivot.to_excel(output_file, index=False)
 print(f"✅ Hourly pivot exported: {output_file}")
@@ -178,32 +187,23 @@ print(f"✅ Hourly pivot exported: {output_file}")
 # ☀️🌙 Light cycle visualization
 def add_light_cycle(ax, day, cycle_type):
     start = pd.to_datetime(str(day)) + pd.Timedelta(hours=7)
-
     if cycle_type == "1":
-        # Alternating 1h light / 1h dark
         for h in range(0, 24, 2):
-            night_start = start + pd.Timedelta(hours=h + 1)
-            night_end = start + pd.Timedelta(hours=h + 2)
-            ax.axvspan(night_start, night_end, color='gray', alpha=0.2)
-
+            ax.axvspan(start + pd.Timedelta(hours=h+1), start + pd.Timedelta(hours=h+2), color='gray', alpha=0.2)
     elif cycle_type == "2":
-        # 24h dark
         ax.axvspan(start, start + pd.Timedelta(hours=24), color='gray', alpha=0.3)
-
     elif cycle_type == "3":
-        # 12h light / 12h dark
-        night_start = start + pd.Timedelta(hours=12)  # 19h same day
-        night_end = night_start + pd.Timedelta(hours=12)  # 7h next day
+        night_start = start + pd.Timedelta(hours=12)
+        night_end = night_start + pd.Timedelta(hours=12)
         ax.axvspan(night_start, night_end, color='gray', alpha=0.3)
 
 # --------------------------
-# 📈 Multi-axis individual graphs (from hourly pivot)
+# 📈 Multi-axis individual graphs
 animals = df_day["Animal"].unique()
 for animal in animals:
     fig, ax1 = plt.subplots(figsize=(14, 6))
     add_light_cycle(ax1, start_day, light_cycle)
 
-    # Axis 1: RER
     if f"RER_Animal{animal}" in df_pivot.columns:
         ax1.plot(df_pivot["DateTime"], df_pivot[f"RER_Animal{animal}"],
                  color='blue', marker='o', linestyle='-', linewidth=1.5, markersize=5, label="RER")
@@ -213,7 +213,6 @@ for animal in animals:
     ax1.xaxis.set_major_locator(mdates.HourLocator(interval=2))
     ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Hh'))
 
-    # Axis 2: XT+YT
     ax2 = ax1.twinx()
     if f"XT_YT_Animal{animal}" in df_pivot.columns:
         ax2.plot(df_pivot["DateTime"], df_pivot[f"XT_YT_Animal{animal}"],
@@ -221,7 +220,6 @@ for animal in animals:
     ax2.set_ylabel("XT+YT / 8000", color='red')
     ax2.tick_params(axis='y', labelcolor='red')
 
-    # Axis 3: Feed
     ax3 = ax1.twinx()
     if f"Feed_Animal{animal}" in df_pivot.columns:
         ax3.plot(df_pivot["DateTime"], df_pivot[f"Feed_Animal{animal}"],
@@ -230,7 +228,6 @@ for animal in animals:
     ax3.tick_params(axis='y', labelcolor='green')
     ax3.spines['right'].set_position(('outward', 60))
 
-    # Axis 4: EE
     ax4 = ax1.twinx()
     if f"EE_Animal{animal}" in df_pivot.columns:
         ax4.plot(df_pivot["DateTime"], df_pivot[f"EE_Animal{animal}"],
@@ -250,7 +247,7 @@ for animal in animals:
 print("✅ Multi-axis graphs successfully generated")
 
 # --------------------------
-# 📈 Individual metric graphs (from hourly pivot)
+# 📈 Individual metric graphs
 for animal in animals:
     for metric, color, ylabel, marker in [
         ("RER", "blue", "RER", "o"),

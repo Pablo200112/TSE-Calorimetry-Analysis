@@ -8,7 +8,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-from tkinter import Tk, filedialog, simpledialog
+from tkinter import Tk, filedialog, simpledialog, messagebox
 
 # --------------------------
 # 📂 Selecting the Excel file (.xlsx)
@@ -23,7 +23,7 @@ print(f"✅ Selected file : {file_path}")
 
 # --------------------------
 # 📁 Output directory
-output_root = r"C:\Users\pablo\OneDrive\Bureau\Program Output"
+output_root = r"D:\pablo.SAIDI\Desktop\Sortie programme calo"
 base_name = os.path.splitext(os.path.basename(file_path))[0]
 output_dir = os.path.join(output_root, base_name)
 os.makedirs(output_dir, exist_ok=True)
@@ -71,10 +71,27 @@ for col in ["RER", "XT_YT", "Feed", "EE"]:
 
 df = df.sort_values(["Animal", "DateTime"])
 
+# --------------------------
 # Differential Feed
 df["Feed_diff"] = df.groupby("Animal")["Feed"].diff()
 df.loc[df["Feed_diff"] < 0, "Feed_diff"] = 0
 
+# ❓ Ask user if values >2 should be excluded
+root = Tk()
+root.withdraw()
+exclude_feed_outliers = messagebox.askyesno(
+    "Feed_diff Filtering",
+    "Do you want to exclude Feed_diff values greater than 2 ?"
+)
+root.destroy()
+
+if exclude_feed_outliers:
+    print("⛔ Excluding Feed_diff values > 2")
+    df.loc[df["Feed_diff"] > 2, "Feed_diff"] = None
+else:
+    print("✔ Keeping all Feed_diff values (no filtering)")
+
+# --------------------------
 # Normalizing XT_YT
 df["XT_YT"] = df["XT_YT"] / 8000
 
@@ -121,21 +138,19 @@ def add_alternation_cycle(ax, day, start_hour=7):
     end = start + pd.Timedelta(hours=24)
     hours = pd.date_range(start=start, end=end, freq="1H")
     for i in range(len(hours)-1):
-        t1, t2 = hours[i], hours[i+1]
         if i % 2 == 1:
-            ax.axvspan(t1, t2, color='gray', alpha=0.3)
+            ax.axvspan(hours[i], hours[i+1], color='gray', alpha=0.3)
 
 def add_darkness_cycle(ax, day, start_hour=7):
     start = pd.to_datetime(str(day) + f" {start_hour}:00")
-    end = start + pd.Timedelta(hours=24)
-    ax.axvspan(start, end, color='black', alpha=0.25)
+    ax.axvspan(start, start + pd.Timedelta(hours=24), color='black', alpha=0.25)
 
 # --------------------------
 # 🪟 Window to select special days
 root = Tk()
 root.withdraw()
-alternation_day = simpledialog.askstring("Alternation Day", "📅 Date of the day with 1h/1h alternation (LD1:1) (YYYY-MM-DD) :")
-darkness_day = simpledialog.askstring("Darkness Day", "🌑 Date of the day with full darkness (DD) (YYYY-MM-DD) :")
+alternation_day = simpledialog.askstring("Alternation Day", "📅 Date with LD1:1 alternation (YYYY-MM-DD) :")
+darkness_day = simpledialog.askstring("Darkness Day", "🌑 Date with full darkness (YYYY-MM-DD) :")
 root.destroy()
 print(f"🌗 Alternation: {alternation_day} | 🌑 Darkness: {darkness_day}")
 
@@ -145,7 +160,6 @@ animals = df["Animal"].unique()
 for animal in animals:
     fig, ax1 = plt.subplots(figsize=(14, 6))
 
-    # Conditional display by day
     for day in df_pivot["Day"].unique():
         if alternation_day and str(day) == alternation_day:
             add_alternation_cycle(ax1, alternation_day)
@@ -154,7 +168,6 @@ for animal in animals:
         else:
             add_night_zones(ax1, [day])
 
-    # Plotting data
     if f"RER_Animal{animal}" in df_pivot.columns:
         ax1.scatter(df_pivot["DateTime"], df_pivot[f"RER_Animal{animal}"], label="RER", color='blue', s=15)
     if f"XT_YT_Animal{animal}" in df_pivot.columns:
@@ -168,7 +181,6 @@ for animal in animals:
     ax1.xaxis.set_major_formatter(mdates.DateFormatter('%d-%Hh'))
     fig.autofmt_xdate(rotation=45, ha='right')
 
-    # Feed on secondary axis
     ax2 = ax1.twinx()
     if f"Feed_Animal{animal}" in df_pivot.columns:
         ax2.plot(df_pivot["DateTime"], df_pivot[f"Feed_Animal{animal}"], color='green', linewidth=2, label="Feed [g/h]")
@@ -218,7 +230,6 @@ generate_global_graph(df_pivot, animals, "RER", "Average RER - All animals", "RE
 generate_global_graph(df_pivot, animals, "XT_YT", "Average XT+YT - All animals", "XT+YT (hourly average)", "Graph_Global_XT_YT.png")
 generate_global_graph(df_pivot, animals, "Feed", "Hourly Feed - All animals", "Hourly Feed (g/h)", "Graph_Global_Feed.png")
 
-# Global EE graph
 ee_cols = [col for col in df_pivot.columns if col.startswith("EE_Animal")]
 if ee_cols:
     generate_global_graph(df_pivot, animals, "EE", "Average Energy Expenditure - All animals", "EE [kcal/h]", "Graph_Global_EE.png")

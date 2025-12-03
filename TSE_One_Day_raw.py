@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Complete Script: Calorimetry Analysis LD11 (with timestamp correction option)
+Complete Script: Calorimetry Analysis LD11 (with timestamp correction option + 15-min resampling)
 Created by Pablo SAIDI
 """
 
@@ -37,7 +37,7 @@ end_period = start_period + pd.Timedelta(hours=24)
 print(f"📅 Analysis period: {start_period} → {end_period}")
 
 # --------------------------
-# ⏱️ Choose how to position timestamps
+# ⏱️ Choose timestamp positioning
 timestamp_mode = simpledialog.askstring(
     "Timestamp Position",
     "Sampling window is 15 min.\n"
@@ -51,12 +51,12 @@ timestamp_mode = simpledialog.askstring(
 if timestamp_mode not in ["1", "2", "3"]:
     raise ValueError("❌ Invalid choice. Restart and enter 1, 2, or 3.")
 
-# Offset in minutes depending on choice
+# Offset
 if timestamp_mode == "1":
-    timestamp_shift = pd.Timedelta(minutes=15)  # shift backwards 15 min
+    timestamp_shift = pd.Timedelta(minutes=15)
     print("⏱️ Using BEGINNING of window timestamps (−15 min).")
 elif timestamp_mode == "2":
-    timestamp_shift = pd.Timedelta(minutes=7, seconds=30)  # shift backwards 7m30s
+    timestamp_shift = pd.Timedelta(minutes=7, seconds=30)
     print("⏱️ Using CENTER of window timestamps (−7m30s).")
 else:
     timestamp_shift = pd.Timedelta(seconds=0)
@@ -99,37 +99,36 @@ df = df.rename(columns={
 })
 
 # --------------------------
-# 🧹 Data cleaning
+# 🧹 Cleaning
 df = df[pd.to_numeric(df["Animal"], errors="coerce").notna()]
 df["Animal"] = df["Animal"].astype(int)
 
 df["DateTime"] = pd.to_datetime(
-    df["Date"].astype(str).str.strip() + " " + df["Time"].astype(str).str.strip(),
+    df["Date"].astype(str).str.strip() + " " +
+    df["Time"].astype(str).str.strip(),
     errors="coerce"
 )
 
-# ⏱️ Apply timestamp correction
+# timestamp correction
 df["DateTime"] = df["DateTime"] - timestamp_shift
 
-# Convert numeric columns
+# convert numeric
 for col in ["RER", "XT_YT", "Feed"]:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-# Energy Expenditure (EE)
 if "Unnamed: 16" in df.columns:
     df["EE"] = pd.to_numeric(df["Unnamed: 16"], errors="coerce")
 
 df = df.sort_values(["Animal", "DateTime"]).copy()
 
 # --------------------------
-# 🧮 FEED DIFF
+# 🧮 Feed diff
 df["Feed_diff"] = df.groupby("Animal")["Feed"].diff()
 df.loc[df["Feed_diff"] < 0, "Feed_diff"] = 0
 df["XT_YT"] = df["XT_YT"] / 8000
 
-# --------------------------
-# 🔹 Tkinter prompt for optional 2 g filter
+# optional filter
 root = Tk()
 root.withdraw()
 apply_filter = messagebox.askyesno(
@@ -140,16 +139,55 @@ root.destroy()
 
 if apply_filter:
     df.loc[df["Feed_diff"] > 2, "Feed_diff"] = None
-    print("⛔ Filter applied: all Feed_diff > 2 g removed")
+    print("⛔ Filter applied: Feed_diff > 2 g removed")
 else:
-    print("✅ Filter not applied: all Feed_diff values kept")
+    print("✅ No Feed_diff filtering applied")
 
 # --------------------------
-# 🧮 Select period 7 AM → 7 AM next day
+# 🔎 Extract 7→7h window
 df_day = df[(df["DateTime"] >= start_period) & (df["DateTime"] < end_period)].copy()
 
+# ============================================================
+# 📌 **15-MIN RESAMPLING PIPELINE (OPTION B ADDED HERE)**
+# ============================================================
+print("\n⏱️ Starting 15-min resampling pipeline...")
+
+time_grid = pd.date_range(start=start_period, end=end_period, freq="15min", inclusive="left")
+resample_vars = ["RER", "XT_YT", "Feed_diff", "EE"]
+
+df_15min = pd.DataFrame({"DateTime": time_grid})
+animals = df_day["Animal"].unique()
+
+for animal in animals:
+    print(f" → Resampling animal {animal}...")
+
+    df_an = df_day[df_day["Animal"] == animal].set_index("DateTime")
+
+    for var in resample_vars:
+        col_name = f"{var}_A{animal}"
+
+        if var not in df_an.columns:
+            df_15min[col_name] = None
+            continue
+
+        ser = (
+            df_an[var]
+            .reindex(df_an.index.union(time_grid))
+            .sort_index()
+            .interpolate(method="time")
+            .reindex(time_grid)
+        )
+
+        df_15min[col_name] = ser.values
+
+output_15min = os.path.join(output_dir, f"{base_name}_{start_day}_15min_resampled.xlsx")
+df_15min.to_excel(output_15min, index=False)
+
+print(f"✅ 15-min resampled data exported: {output_15min}")
+# ============================================================
+
 # --------------------------
-# 🧱 Organize wide-format tables for Excel
+# 🧱 Wide-format export
 metrics = ["RER", "XT_YT", "Feed_diff", "EE"]
 wide_data = {}
 
@@ -163,16 +201,16 @@ with pd.ExcelWriter(output_file_combined, engine="openpyxl") as writer:
             df_wide.to_excel(writer, sheet_name=metric)
             print(f"✅ Wide-format sheet added: {metric}")
 
-print(f"📘 All wide-format data saved in: {output_file_combined}")
+print(f"📘 Wide-format data saved in: {output_file_combined}")
 
 # --------------------------
-# 💾 Export raw corrected data
+# Raw corrected data export
 output_file = os.path.join(output_dir, f"{base_name}_{start_day}_LD11_7h_7h_raw.xlsx")
 df_day.to_excel(output_file, index=False)
 print(f"✅ Raw data exported: {output_file}")
 
 # --------------------------
-# ☀️🌙 Light cycle visualization
+# 🌙 Light cycle shading
 def add_light_cycle(ax, day, cycle_type):
     start = pd.to_datetime(str(day)) + pd.Timedelta(hours=7)
     if cycle_type == "1":
@@ -198,10 +236,9 @@ for animal in animals:
 
     if "RER" in df_animal.columns:
         ax1.plot(df_animal["DateTime"], df_animal["RER"],
-                 color='blue', marker='o', linestyle='-', linewidth=1, markersize=3, label="RER")
+                 color='blue', marker='o', linestyle='-', linewidth=1, markersize=3)
     ax1.set_xlabel("Hour")
     ax1.set_ylabel("RER", color='blue')
-    ax1.tick_params(axis='y', labelcolor='blue')
     ax1.xaxis.set_major_locator(mdates.HourLocator(interval=2))
     ax1.xaxis.set_major_formatter(mdates.DateFormatter('%Hh'))
 
@@ -210,32 +247,27 @@ for animal in animals:
         ax2.plot(df_animal["DateTime"], df_animal["XT_YT"],
                  color='red', marker='s', linestyle='-', linewidth=1, markersize=3, alpha=0.7)
     ax2.set_ylabel("XT+YT / 8000", color='red')
-    ax2.tick_params(axis='y', labelcolor='red')
 
     ax3 = ax1.twinx()
     if "Feed_diff" in df_animal.columns:
         ax3.plot(df_animal["DateTime"], df_animal["Feed_diff"],
                  color='green', marker='D', linestyle='-', linewidth=1.5, markersize=3)
+    ax3.spines["right"].set_position(("outward", 60))
     ax3.set_ylabel("Feed (g)", color='green')
-    ax3.tick_params(axis='y', labelcolor='green')
-    ax3.spines['right'].set_position(('outward', 60))
 
     ax4 = ax1.twinx()
     if "EE" in df_animal.columns:
         ax4.plot(df_animal["DateTime"], df_animal["EE"],
                  color='#800080', marker='^', linestyle='-', linewidth=1.5, markersize=3)
+    ax4.spines["right"].set_position(("outward", 120))
     ax4.set_ylabel("EE (kcal)", color='#800080')
-    ax4.tick_params(axis='y', labelcolor='#800080')
-    ax4.spines['right'].set_position(('outward', 120))
 
-    ax1.set_title(f"Animal {animal} - {start_day} (Cycle {light_cycle})")
     ax1.grid(True, axis='y', linestyle='--', alpha=0.7)
-    plt.xticks(rotation=45)
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, f"Graph_Animal{animal}_{start_day}_Cycle{light_cycle}_raw.png"))
     plt.close()
 
-print("✅ Multi-axis graphs successfully generated")
+print("✅ Multi-axis graphs generated")
 
 # --------------------------
 # 📈 Individual metric graphs
@@ -255,13 +287,10 @@ for animal in animals:
             ax.set_title(f"Animal {animal} - {metric} - {start_day}")
             ax.set_xlabel("Hour")
             ax.set_ylabel(ylabel, color=color)
-            ax.tick_params(axis='y', labelcolor=color)
             ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
             ax.xaxis.set_major_formatter(mdates.DateFormatter('%Hh'))
-            ax.grid(True, linestyle='--', alpha=0.7)
-            plt.xticks(rotation=45)
             plt.tight_layout()
             plt.savefig(os.path.join(output_dir, f"Graph_Animal{animal}_{metric}_{start_day}_raw.png"))
             plt.close()
 
-print(f"\n📦 All output files are located in: {output_dir}")
+print(f"\n📦 All output files generated in: {output_dir}")

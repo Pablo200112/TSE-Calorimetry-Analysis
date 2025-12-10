@@ -148,7 +148,7 @@ else:
 df_day = df[(df["DateTime"] >= start_period) & (df["DateTime"] < end_period)].copy()
 
 # ============================================================
-# 📌 **15-MIN RESAMPLING PIPELINE (OPTION B ADDED HERE)**
+# 📌 **15-MIN RESAMPLING PIPELINE**
 # ============================================================
 print("\n⏱️ Starting 15-min resampling pipeline...")
 
@@ -184,7 +184,6 @@ output_15min = os.path.join(output_dir, f"{base_name}_{start_day}_15min_resample
 df_15min.to_excel(output_15min, index=False)
 
 print(f"✅ 15-min resampled data exported: {output_15min}")
-# ============================================================
 
 # --------------------------
 # 🧱 Wide-format export
@@ -226,7 +225,7 @@ def add_light_cycle(ax, day, cycle_type):
         ax.axvspan(night_start, night_end, color='gray', alpha=0.3)
 
 # --------------------------
-# 📈 Multi-axis graphs
+# 📈 Multi-axis graphs per animal
 animals = df_day["Animal"].unique()
 for animal in animals:
     fig, ax1 = plt.subplots(figsize=(14, 6))
@@ -270,7 +269,7 @@ for animal in animals:
 print("✅ Multi-axis graphs generated")
 
 # --------------------------
-# 📈 Individual metric graphs
+# 📈 Individual metric graphs per animal
 for animal in animals:
     df_animal = df_day[df_day["Animal"] == animal]
     for metric, color, ylabel, marker in [
@@ -293,4 +292,56 @@ for animal in animals:
             plt.savefig(os.path.join(output_dir, f"Graph_Animal{animal}_{metric}_{start_day}_raw.png"))
             plt.close()
 
+print("📈 Individual plots generated")
+
+# ============================================================
+# 📈 GRAPHES PAR PARAMÈTRE AVEC LES 4 ANIMAUX SUR LE MÊME PLOT
+# ============================================================
+
+print("\n📊 Generating per-parameter graphs with all animals...")
+
+metrics_info = {
+    "RER": ("RER", "blue", "RER"),
+    "XT_YT": ("Activity (XT+YT / 8000)", "red", "XT+YT / 8000"),
+    "Feed_diff": ("Food intake (g)", "green", "Feed (g)"),
+    "EE": ("Energy Expenditure (kcal)", "#800080", "EE (kcal)")
+}
+
+for metric, (title_label, default_color, ylabel) in metrics_info.items():
+    if metric not in df_day.columns:
+        continue
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+    add_light_cycle(ax, start_day, light_cycle)
+
+    # Plot the 4 animals
+    for animal in sorted(animals):
+        df_an = df_day[df_day["Animal"] == animal]
+
+        if df_an[metric].notna().sum() == 0:
+            continue  # skip empty data
+
+        ax.plot(
+            df_an["DateTime"],
+            df_an[metric],
+            linestyle='-',
+            linewidth=1.3,
+            markersize=3,
+            marker='o',
+            label=f"Animal {animal}"
+        )
+
+    ax.set_title(f"{metric} – All animals – {start_day}")
+    ax.set_xlabel("Hour")
+    ax.set_ylabel(ylabel)
+    ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Hh'))
+    ax.grid(True, axis="y", linestyle="--", alpha=0.7)
+    ax.legend(title="Animals")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, f"Graph_AllAnimals_{metric}_{start_day}.png"))
+    plt.close()
+
+print("✅ Multi-animal parameter plots generated")
 print(f"\n📦 All output files generated in: {output_dir}")

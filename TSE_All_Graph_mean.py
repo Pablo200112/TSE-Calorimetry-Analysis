@@ -102,7 +102,7 @@ df["Hour"] = df["DateTime"].dt.hour
 # --------------------------
 # Hourly averages per animal
 rer_pivot = df.pivot_table(index=["Day", "Hour"], columns="Animal", values="RER", aggfunc="mean")
-xtyt_pivot = df.pivot_table(index=["Day", "Hour"], columns="Animal", values="XT_YT", aggfunc="mean")
+xtyt_pivot = df.pivot_table(index=["Day", "Hour"], columns="Animal", values="XT_YT", aggfunc="sum")
 feed_pivot = df.pivot_table(index=["Day", "Hour"], columns="Animal", values="Feed_diff", aggfunc="sum")
 ee_pivot = df.pivot_table(index=["Day", "Hour"], columns="Animal", values="EE", aggfunc="mean")
 
@@ -236,3 +236,4 @@ if ee_cols:
 
 print("✅ Global graphs for RER, XT+YT, Feed, and EE generated successfully")
 print(f"\n📦 All files are in: {output_dir}")
+

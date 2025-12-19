@@ -161,7 +161,7 @@ print(f"✅ Shifted raw data exported: {output_file_shifted}")
 # --------------------------
 # 📊 Hourly averages / sums
 rer_pivot = df_day.pivot_table(index="Relative_Hour", columns="Animal", values="RER", aggfunc="mean")
-xtyt_pivot = df_day.pivot_table(index="Relative_Hour", columns="Animal", values="XT_YT", aggfunc="mean")
+xtyt_pivot = df_day.pivot_table(index="Relative_Hour", columns="Animal", values="XT_YT", aggfunc="sum")
 feed_pivot = df_day.pivot_table(index="Relative_Hour", columns="Animal", values="Feed_diff", aggfunc="sum")
 
 rer_pivot.columns = [f"RER_Animal{col}" for col in rer_pivot.columns]
@@ -311,3 +311,4 @@ generate_global_graph(df_pivot, animals, "EE", "Hourly EE - All animals",
 
 print("✅ All graphs successfully generated")
 print(f"\n📦 All output files are located in: {output_dir}")
+

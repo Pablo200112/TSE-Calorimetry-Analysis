@@ -1,0 +1,221 @@
+# -*- coding: utf-8 -*-
+"""
+4-Day Calorimetry Analysis
+- Timestamp correction
+- 24h Cycles (07:00 to 07:00)
+- Full Raw Data Export (15-min resolution)
+- NA for missing values
+- Feed Filter: Values > 2g replaced by NA
+"""
+
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from tkinter import Tk, filedialog, simpledialog
+from datetime import timedelta
+
+# --------------------------
+# 📂 1. Sélection du fichier Excel
+# --------------------------
+Tk().withdraw()
+file_path = filedialog.askopenfilename(
+    title="Select your merged Excel file",
+    filetypes=[("Excel Files", "*.xlsx *.xls")]
+)
+if not file_path:
+    raise FileNotFoundError("❌ No file selected.")
+
+# --------------------------
+# 📅 2. Paramètres de l'analyse
+# --------------------------
+start_day_str = simpledialog.askstring("Start Date", "Enter the START date (YYYY-MM-DD)")
+start_day = pd.to_datetime(start_day_str).date()
+
+# Position du timestamp
+timestamp_mode = simpledialog.askstring(
+    "Timestamp Position",
+    "Sampling window is 15 min.\n"
+    "Choose how to position each data point:\n\n"
+    "1 = beginning of window (ex: 08:00 → 07:45)\n"
+    "2 = center of window, recommended (ex: 08:00 → 07:52:30)\n"
+    "3 = end of window (no correction)\n\n"
+    "Enter 1, 2, or 3:"
+)
+
+if timestamp_mode == "1":
+    timestamp_shift = pd.Timedelta(minutes=15)
+elif timestamp_mode == "2":
+    timestamp_shift = pd.Timedelta(minutes=7, seconds=30)
+else:
+    timestamp_shift = pd.Timedelta(seconds=0)
+
+# Définition des 4 cycles (Nom, CodeType)
+cycles = [
+    ("Jour1_LD12-12", "3"),
+    ("Jour2_DarkDark", "2"),
+    ("Jour3_LD1-1", "1"),
+    ("Jour4_LD12-12", "3"),
+]
+
+# Dossier de sortie
+output_root = r"C:\Users\Pablo.SAIDI\Desktop\Sortie programme calo"
+os.makedirs(output_root, exist_ok=True)
+base_name = os.path.splitext(os.path.basename(file_path))[0]
+
+# --------------------------
+# ⚙️ 3. Fonctions utilitaires
+# --------------------------
+def determine_light_dark(dt, cycle_type):
+    """Détermine le statut Light/Dark point par point"""
+    if pd.isna(dt): return "NA"
+    hour = dt.hour
+    if cycle_type == "1": # LD 1h-1h (commence à 7h en Light)
+        delta_h = int((dt - dt.replace(hour=7, minute=0, second=0)).total_seconds() // 3600)
+        return "Light" if delta_h % 2 == 0 else "Dark"
+    elif cycle_type == "2": # DarkDark
+        return "Dark"
+    elif cycle_type == "3": # LD 12-12 (7h-19h Light)
+        return "Light" if 7 <= hour < 19 else "Dark"
+    return "NA"
+
+def shade_light_cycle(ax, start_time, cycle_type):
+    """Gère le grisage des zones Dark sur les graphiques"""
+    if cycle_type == "1":
+        for h in range(0, 24, 2):
+            ax.axvspan(start_time + pd.Timedelta(hours=h + 1),
+                       start_time + pd.Timedelta(hours=h + 2),
+                       color='gray', alpha=0.15)
+    elif cycle_type == "2":
+        ax.axvspan(start_time, start_time + pd.Timedelta(hours=24), color='gray', alpha=0.25)
+    elif cycle_type == "3":
+        ax.axvspan(start_time + pd.Timedelta(hours=12),
+                   start_time + pd.Timedelta(hours=24),
+                   color='gray', alpha=0.25)
+
+# --------------------------
+# 🔄 4. Boucle de traitement (7h à 7h)
+# --------------------------
+all_days_data = []
+
+for i, (cycle_name, cycle_code) in enumerate(cycles):
+    day = start_day + timedelta(days=i)
+    start_period = pd.to_datetime(str(day)) + pd.Timedelta(hours=7)
+    end_period = start_period + pd.Timedelta(hours=24)
+
+    # Lecture
+    df = pd.read_excel(file_path, sheet_name='PS 2025 03 M', na_values=['', ' ', 'NaN', 'None'])
+    df.columns = df.columns.str.strip()
+
+    # Renommage
+    df = df.rename(columns={
+        "PS 2025 03": "Date",
+        "Unnamed: 1": "Time",
+        "TX002": "Animal",
+        "Unnamed: 13": "RER",
+        "Unnamed: 14": "XT_YT",
+        "Unnamed: 15": "Feed"
+    })
+
+    if len(df.columns) >= 17:
+        df = df.rename(columns={df.columns[16]: "EE"})
+    else:
+        df["EE"] = np.nan
+
+    # Nettoyage Animal ID
+    df = df[pd.to_numeric(df["Animal"], errors="coerce").notna()]
+    df["Animal"] = df["Animal"].astype(int)
+
+    # DateTime et Shift
+    df["DateTime"] = pd.to_datetime(
+        df["Date"].astype(str).str.strip() + " " + df["Time"].astype(str).str.strip(),
+        errors="coerce"
+    )
+    df["DateTime"] = df["DateTime"] - timestamp_shift
+
+    # Conversion numérique stricte
+    for col in ["RER", "XT_YT", "Feed", "EE"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Calcul Feed (différence entre deux points)
+    df = df.sort_values(["Animal", "DateTime"])
+    df["Feed_diff"] = df.groupby("Animal")["Feed"].diff().clip(lower=0)
+
+    # 🛑 FILTRE FEED : Remplacer les valeurs > 2 par NaN
+    df.loc[df["Feed_diff"] > 2, "Feed_diff"] = np.nan
+
+    # Normalisation Activité
+    if "XT_YT" in df.columns:
+        df["XT_YT"] = df["XT_YT"] / 8000
+
+    # Filtrage 07h -> 07h
+    df_day = df[(df["DateTime"] >= start_period) & (df["DateTime"] < end_period)].copy()
+
+    df_day["Cycle"] = cycle_name
+    df_day["CycleType"] = cycle_code
+    all_days_data.append(df_day)
+
+# --------------------------
+# 📦 5. Fusion et Export Excel
+# --------------------------
+df_all = pd.concat(all_days_data, ignore_index=True)
+
+df_export = df_all.copy()
+df_export['Day'] = df_export['Cycle']
+df_export['Hour'] = df_export['DateTime'].dt.strftime('%H:%M')
+df_export['Light/Dark'] = df_export.apply(lambda x: determine_light_dark(x['DateTime'], x['CycleType']), axis=1)
+
+# Renommage colonnes pour le tableau final
+df_export = df_export.rename(columns={'XT_YT': 'Activity', 'Feed_diff': 'Feed'})
+
+# Sélection colonnes demandées
+final_cols = ['Day', 'Hour', 'Animal', 'Light/Dark', 'RER', 'Activity', 'Feed', 'EE']
+df_final_table = df_export[final_cols]
+
+# Exportation Excel
+excel_path = os.path.join(output_root, f"{base_name}_Raw_Data_Filtered.xlsx")
+df_final_table.to_excel(excel_path, index=False, na_rep='NA')
+
+# --------------------------
+# 📈 6. Graphiques
+# --------------------------
+animals = sorted(df_all["Animal"].unique())
+param_colors = {"RER": "blue", "XT_YT": "red", "Feed_diff": "green", "EE": "purple"}
+
+for animal in animals:
+    df_animal = df_all[df_all["Animal"] == animal]
+    
+    for param, color in param_colors.items():
+        if param not in df_animal.columns or df_animal[param].dropna().empty:
+            continue
+
+        fig, ax = plt.subplots(figsize=(16,6))
+        # Dropna pour le tracé graphique uniquement
+        plot_data = df_animal.dropna(subset=[param])
+        ax.plot(plot_data["DateTime"], plot_data[param], color=color, linewidth=2)
+
+        for i, (cycle_name, cycle_code) in enumerate(cycles):
+            day_start = pd.to_datetime(str(start_day + timedelta(days=i))) + pd.Timedelta(hours=7)
+            shade_light_cycle(ax, day_start, cycle_code)
+
+        # Label spécifique pour le Feed si filtré
+        y_label = param if param != "Feed_diff" else "Feed (Filtered > 2g)"
+        
+        ax.set_title(f"Animal {animal} - {param} (Raw 15-min)")
+        ax.set_xlabel("DateTime")
+        ax.set_ylabel(y_label)
+        ax.grid(True, linestyle='--', alpha=0.6)
+        ax.xaxis.set_major_locator(mdates.HourLocator(interval=6))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%m-%d %Hh'))
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+
+        save_name = f"Animal{animal}_{param}_4Days_Raw.png"
+        plt.savefig(os.path.join(output_root, save_name))
+        plt.close()
+
+print(f"\n✅ TERMINÉ !")
+print(f"📊 Tableau Excel généré (Feed > 2g retirés) : {excel_path}")
+print(f"🖼️ Graphiques enregistrés dans : {output_root}")

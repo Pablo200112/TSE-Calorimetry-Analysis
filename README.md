@@ -53,12 +53,3 @@ ORDER OF EXECUTION / ORDRE D'EXÉCUTION :
        - TSE_One_Day_raw.py    : Raw 15-min data for a selected day
        - TSE_4_Days_raw.py     : Raw 15-min data for 4 consecutive days
 
--------------------------------------------------------------------------------
-REQUIREMENTS / PRÉREQUIS :
-    pip install pandas matplotlib openpyxl tk
-===============================================================================
-"""
-
-# --- Début de ton code existant (ex: import pandas as pd, etc.) ---
-import pandas as pd
-# ... rest of your code ...

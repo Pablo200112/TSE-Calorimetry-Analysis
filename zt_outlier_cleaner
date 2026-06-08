@@ -1,0 +1,145 @@
+import os
+from tkinter import Tk, filedialog
+import numpy as np
+import pandas as pd
+
+# ==============================================================================
+# 1. FILE SELECTION VIA WINDOW
+# ==============================================================================
+root = Tk()
+root.withdraw()
+root.attributes("-topmost", True)
+
+print("Please select your Excel file...")
+file_path = filedialog.askopenfilename(
+    title="Select the Excel File (ZT Continuous Chronology)",
+    filetypes=[("Excel Files", "*.xlsx *.xls")],
+)
+
+if not file_path:
+    print("Action cancelled: no file selected.")
+    exit()
+
+df = pd.read_excel(file_path)
+
+# Cleaning French commas for all numerical columns
+numerical_columns = ["RER", "Activity", "Feed", "EE"]
+for col in numerical_columns:
+    if col in df.columns and df[col].dtype == "object":
+        df[col] = df[col].astype(str).str.replace(",", ".").astype(float)
+
+# ==============================================================================
+# 2. ZEITGEBER TIME (ZT) CONVERSION & DAY LOGIC PER ANIMAL
+# ==============================================================================
+df["Hour_Clean"] = df["Hour"].astype(str).str.replace("h", ":")
+df["Hour_Num"] = df["Hour_Clean"].str.split(":").str[0].astype(int)
+
+# Zeitgeber Time counter calculation (ZT00 to ZT23)
+# 07:00 becomes ZT00, 19:00 becomes ZT12, 00:00 becomes ZT17, 06:00 becomes ZT23
+df["ZT_Num"] = df["Hour_Num"].apply(lambda h: h - 7 if h >= 7 else h + 17)
+df["ZT_Format"] = df["ZT_Num"].apply(lambda zt: f"ZT{str(zt).zfill(2)}")
+
+# --- CRITICAL CORRECTION ---
+# We detect the day change independently FOR EACH ANIMAL
+# A day changes only if, for the SAME animal, ZT_Num decreases compared to the previous row
+df["New_Day_Marker"] = df.groupby("Animal")["ZT_Num"].diff() < 0
+
+# We calculate the cumulative day index per animal
+df["True_Day_Index"] = df.groupby("Animal")["New_Day_Marker"].cumsum() + 1
+df["True_Day_Index"] = df["True_Day_Index"].clip(upper=4) # Safety max 4 days
+
+# Mapping dictionary with your experimental conditions
+dict_conditions = {
+    1: "D1_12h12",
+    2: "D2_DD",
+    3: "D3_LD1-1",
+    4: "D4_12h12"
+}
+df["Biological_Day"] = df["True_Day_Index"].map(dict_conditions)
+
+# ==============================================================================
+# 3. STATISTICAL OUTLIER TREATMENT ON FEED (MODIFIED Z-SCORE / MAD METHOD)
+# ==============================================================================
+print("\n" + "="*80)
+print("   STRICT STATISTICAL OUTLIER VALIDATION REPORT (FEED)")
+print("="*80)
+
+df_clean = df.copy()
+positive_feed = df_clean[df_clean["Feed"] > 0]["Feed"]
+
+if not positive_feed.empty:
+    median = positive_feed.median()
+    mad = np.median(np.abs(positive_feed - median))
+    if mad == 0:
+        mad = np.mean(np.abs(positive_feed - median))
+        
+    modified_z_threshold = 3.5
+    robust_statistical_limit = median + (modified_z_threshold * mad / 0.6745)
+    
+    outlier_rows = df_clean["Feed"] > robust_statistical_limit
+    total_outliers = outlier_rows.sum()
+    max_value_before = df["Feed"].max()
+    
+    df_clean.loc[outlier_rows, "Feed"] = robust_statistical_limit
+    
+    print(f"Modified Z-Score analysis on all positive meals (Critical threshold = {modified_z_threshold}):")
+    print(f"  - Positive meals median       : {median:.4f} g")
+    print(f"  - MAD (Robust dispersion)     : {mad:.4f} g")
+    print(f"  --> MAX BIOLOGICO-STATISTICAL THRESHOLD: {robust_statistical_limit:.4f} g")
+    print(f"  --> Result: {total_outliers} outlier(s) detected (Cap applied).")
+else:
+    print("Outlier Detection: No positive data found in the Feed column.")
+
+print("="*80 + "\n")
+
+# ==============================================================================
+# 4. HOURLY CALCULATION PER ANIMAL AND PER BIOLOGICAL DAY
+# ==============================================================================
+df_animal_day = (
+    df_clean.groupby(["Biological_Day", "True_Day_Index", "ZT_Format", "ZT_Num", "Animal"])
+    .agg({"Activity": "sum", "Feed": "sum", "EE": "sum", "RER": "mean"})
+    .reset_index()
+)
+
+# ==============================================================================
+# 5. CONSTRUCTION OF CHRONOLOGICAL SUMMARY MATRICES ONLY
+# ==============================================================================
+excel_sheets = {}
+
+for param in ["Activity", "Feed", "EE", "RER"]:
+    # Creation of the continuous matrix (96 rows: from D1_ZT00 to D4_ZT23)
+    matrix_A = df_animal_day.pivot(
+        index=["Biological_Day", "True_Day_Index", "ZT_Format", "ZT_Num"], 
+        columns="Animal", 
+        values=param
+    .reset_index()
+    
+    # Absolute chronological sorting by day then by ZT hour
+    matrix_A = matrix_A.sort_values(by=["True_Day_Index", "ZT_Num"])
+    
+    # Drop numeric sorting columns to clean up the final table
+    matrix_A = matrix_A.drop(columns=["True_Day_Index", "ZT_Num"])
+    
+    # Save into the sheets dictionary
+    excel_sheets[f"{param}_Chronological"] = matrix_A
+
+# Cleaning intermediate technical columns for the base sheet
+df_clean_saved = df_clean.drop(columns=["Hour_Clean", "Hour_Num", "ZT_Num", "New_Day_Marker", "True_Day_Index"])
+
+# ==============================================================================
+# 6. SAVE FINAL MULTI-SHEET EXCEL
+# ==============================================================================
+source_folder = os.path.dirname(file_path)
+source_name = os.path.basename(file_path).split(".")[0]
+output_file = os.path.join(source_folder, f"{source_name}_ZT_CHRONOLOGY.xlsx")
+
+with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
+    # Sheet 1: Original data cleaned of Feed outliers
+    df_clean_saved.to_excel(writer, sheet_name="Cleaned Data", index=False)
+    
+    # Sheets 2 to 5: Pure chronological kinetics of your 4 parameters
+    for sheet_name, df_matrix in excel_sheets.items():
+        df_matrix.to_excel(writer, sheet_name=sheet_name, index=False)
+
+print(f"Processing completed successfully!")
+print(f"100% chronological file available here: {output_file}\n")
